@@ -1,0 +1,15 @@
+README.md
+setup.py
+agent_monitor/__init__.py
+agent_monitor/config/__init__.py
+agent_monitor/plugins/__init__.py
+agent_monitor/plugins/crewai_plugin.py
+agent_monitor/transports/__init__.py
+agent_monitor/transports/direct.py
+agent_monitor/utils/__init__.py
+agent_monitor_plugin.egg-info/PKG-INFO
+agent_monitor_plugin.egg-info/SOURCES.txt
+agent_monitor_plugin.egg-info/dependency_links.txt
+agent_monitor_plugin.egg-info/entry_points.txt
+agent_monitor_plugin.egg-info/requires.txt
+agent_monitor_plugin.egg-info/top_level.txt

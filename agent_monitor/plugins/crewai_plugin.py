@@ -9,8 +9,8 @@ import socket
 from typing import Optional
 import logging
 
-from agent_monitor.transports.direct import DirectTransport
-from agent_monitor.protocol.unified_event import (
+from transports.direct import DirectTransport
+from protocol.unified_event import (
     MonitorEvent,
     EventSource,
     EventMetadata,
@@ -18,6 +18,17 @@ from agent_monitor.protocol.unified_event import (
 )
 
 logger = logging.getLogger(__name__)
+
+# 配置日志输出
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
 
 class CrewAIPlugin:
@@ -30,7 +41,8 @@ class CrewAIPlugin:
     def __init__(
         self,
         monitor_url: Optional[str] = None,
-        transport: Optional[DirectTransport] = None
+        transport: Optional[DirectTransport] = None,
+        debug: bool = False
     ):
         """
         Initialize CrewAI Plugin
@@ -38,14 +50,23 @@ class CrewAIPlugin:
         Args:
             monitor_url: Monitoring server URL
             transport: Transport instance (optional)
+            debug: Enable debug logging and sync send
         """
         self.server_id = self._get_server_id()
-        self.transport = transport or DirectTransport(
-            monitor_url or os.getenv("AGENT_MONITOR_URL")
-        )
-        self._installed = False
+        self.debug = debug
 
-        logger.info(f"CrewAI Plugin initialized (server_id: {self.server_id})")
+        if transport:
+            self.transport = transport
+        else:
+            url = monitor_url or os.getenv("AGENT_MONITOR_URL")
+            logger.info(f"初始化插件，监控服务器: {url}")
+            self.transport = DirectTransport(
+                url,
+                silent_fail=not debug  # 调试模式显示错误
+            )
+
+        self._installed = False
+        logger.info(f"CrewAI Plugin initialized (server_id: {self.server_id}, debug={debug})")
 
     def install(self):
         """Install monitoring hooks"""
@@ -80,29 +101,38 @@ class CrewAIPlugin:
         @crewai_event_bus.on(AgentExecutionStartedEvent)
         def on_agent_start(source, event):
             """Agent comes online"""
-            monitor_event = MonitorEvent(
-                source=EventSource(
-                    server_id=self.server_id,
-                    agent_id=event.agent.id,
-                    framework="crewai",
-                    language=Language.python,
-                    process_id=os.getpid(),
-                ),
-                event={
-                    "type": "agent_online",
-                    "data": {
-                        "role": event.agent.role,
-                        "goal": event.agent.goal,
-                        "backstory": event.agent.backstory,
-                    }
-                },
-                metadata=EventMetadata(
-                    hostname=socket.gethostname(),
-                    ip_address=self._get_local_ip(),
-                ),
-            )
+            try:
+                logger.info(f"[Agent上线] {event.agent.role} (ID: {event.agent.id})")
+                monitor_event = MonitorEvent(
+                    source=EventSource(
+                        server_id=self.server_id,
+                        agent_id=str(event.agent.id),
+                        framework="crewai",
+                        language=Language.python,
+                        process_id=os.getpid(),
+                    ),
+                    event={
+                        "type": "agent_online",
+                        "data": {
+                            "role": event.agent.role,
+                            "goal": event.agent.goal,
+                            "backstory": event.agent.backstory,
+                        }
+                    },
+                    metadata=EventMetadata(
+                        hostname=socket.gethostname(),
+                        ip_address=self._get_local_ip(),
+                    ),
+                )
 
-            self.transport.send(monitor_event.to_dict())
+                if self.debug:
+                    # 调试模式使用同步发送，便于调试
+                    success = self.transport.send_sync(monitor_event.to_dict())
+                    logger.info(f"[Agent上线] 发送{'成功' if success else '失败'}")
+                else:
+                    self.transport.send(monitor_event.to_dict())
+            except Exception as e:
+                logger.error(f"[Agent上线] 处理失败: {e}", exc_info=True)
 
         @crewai_event_bus.on(AgentExecutionCompletedEvent)
         def on_agent_complete(source, event):
@@ -165,28 +195,37 @@ class CrewAIPlugin:
         @crewai_event_bus.on(TaskStartedEvent)
         def on_task_start(source, event):
             """Agent starts working"""
-            monitor_event = MonitorEvent(
-                source=EventSource(
-                    server_id=self.server_id,
-                    agent_id=event.task.agent.id,
-                    framework="crewai",
-                    language=Language.python,
-                    process_id=os.getpid(),
-                ),
-                event={
-                    "type": "agent_working",
-                    "data": {
-                        "task": event.task.description,
-                        "expected_output": event.task.expected_output,
-                    }
-                },
-                metadata=EventMetadata(
-                    hostname=socket.gethostname(),
-                    ip_address=self._get_local_ip(),
-                ),
-            )
+            try:
+                logger.info(f"[Agent工作] {event.task.agent.role} - {event.task.description[:50]}...")
+                monitor_event = MonitorEvent(
+                    source=EventSource(
+                        server_id=self.server_id,
+                        agent_id=str(event.task.agent.id),
+                        framework="crewai",
+                        language=Language.python,
+                        process_id=os.getpid(),
+                    ),
+                    event={
+                        "type": "agent_working",
+                        "data": {
+                            "task": event.task.description,
+                            "expected_output": event.task.expected_output,
+                        }
+                    },
+                    metadata=EventMetadata(
+                        hostname=socket.gethostname(),
+                        ip_address=self._get_local_ip(),
+                        tags=[]
+                    ),
+                )
 
-            self.transport.send(monitor_event.to_dict())
+                if self.debug:
+                    success = self.transport.send_sync(monitor_event.to_dict())
+                    logger.info(f"[Agent工作] 发送{'成功' if success else '失败'}")
+                else:
+                    self.transport.send(monitor_event.to_dict())
+            except Exception as e:
+                logger.error(f"[Agent工作] 处理失败: {e}", exc_info=True)
 
     def _setup_tool_monitoring(self):
         """Monitor tool usage"""
@@ -272,8 +311,9 @@ try:
     if os.getenv("AGENT_MONITOR_ENABLED"):
         monitor_url = os.getenv("AGENT_MONITOR_URL")
         if monitor_url:
-            plugin = CrewAIPlugin(monitor_url=monitor_url)
+            debug_mode = os.getenv("AGENT_MONITOR_DEBUG", "false").lower() == "true"
+            plugin = CrewAIPlugin(monitor_url=monitor_url, debug=debug_mode)
             plugin.install()
-            logger.info("CrewAI monitoring plugin auto-installed")
+            logger.info(f"CrewAI monitoring plugin auto-installed (debug={debug_mode})")
 except Exception as e:
     logger.debug(f"Auto-install skipped: {e}")

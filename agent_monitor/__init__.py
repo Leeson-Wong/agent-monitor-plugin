@@ -17,8 +17,8 @@ Agent Monitor Plugin - 通用 Agent 监控插件
 
 __version__ = "0.1.0"
 
-from agent_monitor.transports.direct import DirectTransport, create_transport
-from agent_monitor.plugins.crewai_plugin import CrewAIPlugin
+from transports.direct import DirectTransport, create_transport
+from plugins.crewai_plugin import CrewAIPlugin
 
 __all__ = [
     "DirectTransport",

@@ -5,7 +5,7 @@
 
 from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -65,20 +65,24 @@ class MonitorEvent(BaseModel):
     """统一监控事件"""
     protocol: str = Field(default="agent-monitor", description="协议标识")
     version: str = Field(default="1.0", description="协议版本")
-    timestamp: datetime = Field(default_factory=datetime.now, description="事件时间")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="事件时间（UTC）")
     source: EventSource = Field(..., description="事件源")
     event: Dict[str, Any] = Field(..., description="事件内容")
     metadata: EventMetadata = Field(..., description="元数据")
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典（用于 JSON 序列化）"""
+        # 将 UTC 时间转换为带 'Z' 后缀的 ISO-8601 格式（兼容 Java Instant）
+        ts = self.timestamp.isoformat()
+        if ts.endswith("+00:00"):
+            ts = ts[:-6] + "Z"
         return {
             "protocol": self.protocol,
             "version": self.version,
-            "timestamp": self.timestamp.isoformat(),
-            "source": self.source.dict(),
+            "timestamp": ts,
+            "source": self.source.model_dump(),
             "event": self.event,
-            "metadata": self.metadata.dict()
+            "metadata": self.metadata.model_dump()
         }
 
     class Config:

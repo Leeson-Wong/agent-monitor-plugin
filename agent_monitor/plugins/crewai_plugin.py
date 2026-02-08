@@ -81,7 +81,9 @@ class CrewAIPlugin:
             return
 
         # Register event listeners
+        self._setup_crew_monitoring()
         self._setup_agent_monitoring()
+        self._setup_llm_monitoring()
         self._setup_task_monitoring()
         self._setup_tool_monitoring()
         self._setup_relationship_monitoring()
@@ -89,10 +91,88 @@ class CrewAIPlugin:
         self._installed = True
         logger.info("CrewAI monitoring plugin installed successfully")
 
+    def _setup_crew_monitoring(self):
+        """Monitor Crew lifecycle"""
+        from crewai.events import crewai_event_bus
+        from crewai.events.types.crew_events import (
+            CrewKickoffStartedEvent,
+            CrewKickoffCompletedEvent,
+        )
+
+        @crewai_event_bus.on(CrewKickoffStartedEvent)
+        def on_crew_start(source, event):
+            """Crew starts execution"""
+            try:
+                logger.info(f"[Crew开始] Crew: {event.crew_name}")
+                # 使用事件本身的 agent_id 或者生成一个
+                agent_id = event.agent_id or f"crew_{event.crew_name or 'unknown'}"
+
+                monitor_event = MonitorEvent(
+                    source=EventSource(
+                        server_id=self.server_id,
+                        agent_id=agent_id,
+                        framework="crewai",
+                        language=Language.python,
+                        process_id=os.getpid(),
+                    ),
+                    event={
+                        "type": "crew_started",
+                        "data": {
+                            "crew_name": event.crew_name,
+                            "inputs": event.inputs,
+                        }
+                    },
+                    metadata=EventMetadata(
+                        hostname=socket.gethostname(),
+                        ip_address=self._get_local_ip(),
+                    ),
+                )
+
+                if self.debug:
+                    success = self.transport.send_sync(monitor_event.to_dict())
+                    logger.info(f"[Crew开始] 发送{'成功' if success else '失败'}")
+                else:
+                    self.transport.send(monitor_event.to_dict())
+            except Exception as e:
+                logger.error(f"[Crew开始] 处理失败: {e}", exc_info=True)
+
+        @crewai_event_bus.on(CrewKickoffCompletedEvent)
+        def on_crew_complete(source, event):
+            """Crew completes execution"""
+            try:
+                logger.info(f"[Crew完成] Crew: {event.crew_name}")
+                agent_id = event.agent_id or f"crew_{event.crew_name or 'unknown'}"
+
+                monitor_event = MonitorEvent(
+                    source=EventSource(
+                        server_id=self.server_id,
+                        agent_id=agent_id,
+                        framework="crewai",
+                        language=Language.python,
+                        process_id=os.getpid(),
+                    ),
+                    event={
+                        "type": "crew_completed",
+                        "data": {
+                            "crew_name": event.crew_name,
+                            "result": str(event.output)[:500] if event.output else None,
+                            "total_tokens": event.total_tokens,
+                        }
+                    },
+                    metadata=EventMetadata(
+                        hostname=socket.gethostname(),
+                        ip_address=self._get_local_ip(),
+                    ),
+                )
+
+                self.transport.send(monitor_event.to_dict())
+            except Exception as e:
+                logger.error(f"[Crew完成] 处理失败: {e}", exc_info=True)
+
     def _setup_agent_monitoring(self):
         """Monitor Agent lifecycle"""
-        from crewai.events import (
-            crewai_event_bus,
+        from crewai.events import crewai_event_bus
+        from crewai.events.types.agent_events import (
             AgentExecutionStartedEvent,
             AgentExecutionCompletedEvent,
             AgentExecutionErrorEvent,
@@ -115,8 +195,8 @@ class CrewAIPlugin:
                         "type": "agent_online",
                         "data": {
                             "role": event.agent.role,
-                            "goal": event.agent.goal,
-                            "backstory": event.agent.backstory,
+                            "goal": getattr(event.agent, 'goal', ''),
+                            "backstory": getattr(event.agent, 'backstory', ''),
                         }
                     },
                     metadata=EventMetadata(
@@ -188,6 +268,76 @@ class CrewAIPlugin:
 
             self.transport.send(monitor_event.to_dict())
 
+    def _setup_llm_monitoring(self):
+        """Monitor LLM calls (thinking state)"""
+        from crewai.events import crewai_event_bus
+        from crewai.events.types.llm_events import LLMCallStartedEvent, LLMCallCompletedEvent
+
+        @crewai_event_bus.on(LLMCallStartedEvent)
+        def on_llm_start(source, event):
+            """Agent starts thinking (LLM call)"""
+            try:
+                agent_id = event.agent_id or event.agent_role or "unknown"
+                logger.info(f"[Agent思考] {agent_id} 开始调用 LLM")
+                monitor_event = MonitorEvent(
+                    source=EventSource(
+                        server_id=self.server_id,
+                        agent_id=agent_id,
+                        framework="crewai",
+                        language=Language.python,
+                        process_id=os.getpid(),
+                    ),
+                    event={
+                        "type": "agent_thinking",
+                        "data": {
+                            "action": "thinking",
+                            "model": event.model or 'unknown',
+                        }
+                    },
+                    metadata=EventMetadata(
+                        hostname=socket.gethostname(),
+                        ip_address=self._get_local_ip(),
+                    ),
+                )
+
+                if self.debug:
+                    success = self.transport.send_sync(monitor_event.to_dict())
+                    logger.info(f"[Agent思考] 发送{'成功' if success else '失败'}")
+                else:
+                    self.transport.send(monitor_event.to_dict())
+            except Exception as e:
+                logger.error(f"[Agent思考] 处理失败: {e}", exc_info=True)
+
+        @crewai_event_bus.on(LLMCallCompletedEvent)
+        def on_llm_complete(source, event):
+            """Agent finishes thinking"""
+            try:
+                agent_id = event.agent_id or event.agent_role or "unknown"
+                logger.info(f"[Agent思考完成] {agent_id}")
+                monitor_event = MonitorEvent(
+                    source=EventSource(
+                        server_id=self.server_id,
+                        agent_id=agent_id,
+                        framework="crewai",
+                        language=Language.python,
+                        process_id=os.getpid(),
+                    ),
+                    event={
+                        "type": "agent_thinking",
+                        "data": {
+                            "action": "completed",
+                        }
+                    },
+                    metadata=EventMetadata(
+                        hostname=socket.gethostname(),
+                        ip_address=self._get_local_ip(),
+                    ),
+                )
+
+                self.transport.send(monitor_event.to_dict())
+            except Exception as e:
+                logger.error(f"[Agent思考完成] 处理失败: {e}", exc_info=True)
+
     def _setup_task_monitoring(self):
         """Monitor task execution"""
         from crewai.events import crewai_event_bus, TaskStartedEvent
@@ -215,7 +365,7 @@ class CrewAIPlugin:
                     metadata=EventMetadata(
                         hostname=socket.gethostname(),
                         ip_address=self._get_local_ip(),
-                        tags=[]
+                        tags={}
                     ),
                 )
 
@@ -229,33 +379,70 @@ class CrewAIPlugin:
 
     def _setup_tool_monitoring(self):
         """Monitor tool usage"""
-        from crewai.events import crewai_event_bus, ToolUsageStartedEvent
+        from crewai.events import crewai_event_bus
+        from crewai.events.types.tool_usage_events import ToolUsageStartedEvent, ToolUsageFinishedEvent
 
         @crewai_event_bus.on(ToolUsageStartedEvent)
         def on_tool_start(source, event):
-            """Agent uses tool"""
-            monitor_event = MonitorEvent(
-                source=EventSource(
-                    server_id=self.server_id,
-                    agent_id=event.agent_key,
-                    framework="crewai",
-                    language=Language.python,
-                    process_id=os.getpid(),
-                ),
-                event={
-                    "type": "agent_using_tool",
-                    "data": {
-                        "tool_name": event.tool_name,
-                        "tool_args": str(event.tool_args)[:500],
-                    }
-                },
-                metadata=EventMetadata(
-                    hostname=socket.gethostname(),
-                    ip_address=self._get_local_ip(),
-                ),
-            )
+            """Agent starts using tool"""
+            try:
+                agent_id = event.agent_id or event.agent_role or "unknown"
+                logger.info(f"[工具使用] {agent_id} 使用 {event.tool_name}")
+                monitor_event = MonitorEvent(
+                    source=EventSource(
+                        server_id=self.server_id,
+                        agent_id=agent_id,
+                        framework="crewai",
+                        language=Language.python,
+                        process_id=os.getpid(),
+                    ),
+                    event={
+                        "type": "tool_usage_started",
+                        "data": {
+                            "tool_name": event.tool_name,
+                            "tool_args": str(event.tool_args)[:500],
+                        }
+                    },
+                    metadata=EventMetadata(
+                        hostname=socket.gethostname(),
+                        ip_address=self._get_local_ip(),
+                    ),
+                )
 
-            self.transport.send(monitor_event.to_dict())
+                self.transport.send(monitor_event.to_dict())
+            except Exception as e:
+                logger.error(f"[工具使用] 处理失败: {e}", exc_info=True)
+
+        @crewai_event_bus.on(ToolUsageFinishedEvent)
+        def on_tool_finish(source, event):
+            """Agent finishes using tool"""
+            try:
+                agent_id = event.agent_id or event.agent_role or "unknown"
+                logger.info(f"[工具完成] {agent_id} 完成 {event.tool_name}")
+                monitor_event = MonitorEvent(
+                    source=EventSource(
+                        server_id=self.server_id,
+                        agent_id=agent_id,
+                        framework="crewai",
+                        language=Language.python,
+                        process_id=os.getpid(),
+                    ),
+                    event={
+                        "type": "tool_usage_finished",
+                        "data": {
+                            "tool_name": event.tool_name,
+                            "result": str(event.output)[:500] if event.output else '',
+                        }
+                    },
+                    metadata=EventMetadata(
+                        hostname=socket.gethostname(),
+                        ip_address=self._get_local_ip(),
+                    ),
+                )
+
+                self.transport.send(monitor_event.to_dict())
+            except Exception as e:
+                logger.error(f"[工具完成] 处理失败: {e}", exc_info=True)
 
     def _setup_relationship_monitoring(self):
         """Monitor Agent relationships"""
@@ -268,7 +455,7 @@ class CrewAIPlugin:
             monitor_event = MonitorEvent(
                 source=EventSource(
                     server_id=self.server_id,
-                    agent_id=event.source_agent_id,
+                    agent_id=event.agent_id or "unknown",
                     framework="crewai",
                     language=Language.python,
                     process_id=os.getpid(),
@@ -277,8 +464,8 @@ class CrewAIPlugin:
                     "type": "agent_relationship",
                     "data": {
                         "relationship_type": "delegate",
-                        "from_agent": event.source_agent_id,
-                        "to_agent": event.a2a_agent_name,
+                        "from_agent": event.agent_id or "unknown",
+                        "to_agent": event.a2a_agent_name or "unknown",
                     }
                 },
                 metadata=EventMetadata(

@@ -1,0 +1,42 @@
+# Customer Service Crew - Task 配置
+# 客服团队 Task 配置文件
+
+initial_response:
+  description: |
+    接收客户咨询，分析问题类型和紧急程度。
+    对于简单问题直接回答，对于复杂问题准备问题描述并转交给专家。
+  expected_output: |
+    一个包含以下内容的报告：
+    - 客户问题摘要
+    - 问题类型分类（技术问题/账单问题/产品咨询/投诉建议）
+    - 紧急程度评估（低/中/高）
+    - 初步回复或转接决定
+  agent: receptionist
+
+technical_support:
+  description: |
+    根据前台提供的问题摘要，进行深入分析和处理。
+    查找相关技术文档，诊断问题根源，提供具体的解决方案。
+    如果问题超出处理范围，准备升级报告。
+  expected_output: |
+    一个详细的技术支持报告，包含：
+    - 问题详细分析
+    - 诊断过程和发现
+    - 具体解决步骤
+    - 预防措施建议
+    - 如果需要升级，说明升级理由
+  agent: specialist
+
+quality_assurance:
+  description: |
+    审查整个客户服务过程，确保服务质量和客户满意度。
+    评估回复的专业性、准确性和友好程度。
+    对于需要改进的地方提供建议。
+  expected_output: |
+    一份服务质量评估报告，包含：
+    - 服务流程回顾
+    - 客户满意度预测
+    - 服务质量评分（1-10分）
+    - 改进建议
+    - 后续跟进计划
+  agent: supervisor

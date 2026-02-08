@@ -9,8 +9,8 @@ import socket
 from typing import Optional
 import logging
 
-from transports.direct import DirectTransport
-from protocol.unified_event import (
+from agent_monitor.transports.direct import DirectTransport
+from agent_monitor.protocol.unified_event import (
     MonitorEvent,
     EventSource,
     EventMetadata,

@@ -104,8 +104,16 @@ class CrewAIPlugin:
             """Crew starts execution"""
             try:
                 logger.info(f"[Crew开始] Crew: {event.crew_name}")
-                # 使用事件本身的 agent_id 或者生成一个
-                agent_id = event.agent_id or f"crew_{event.crew_name or 'unknown'}"
+                # Safely get agent ID with fallback
+                agent_id = None
+                try:
+                    if hasattr(event, 'agent_id') and event.agent_id is not None:
+                        agent_id = str(event.agent_id)
+                except Exception:
+                    pass
+
+                if not agent_id:
+                    agent_id = f"crew_{event.crew_name or 'unknown'}"
 
                 monitor_event = MonitorEvent(
                     source=EventSource(
@@ -141,7 +149,16 @@ class CrewAIPlugin:
             """Crew completes execution"""
             try:
                 logger.info(f"[Crew完成] Crew: {event.crew_name}")
-                agent_id = event.agent_id or f"crew_{event.crew_name or 'unknown'}"
+                # Safely get agent ID with fallback
+                agent_id = None
+                try:
+                    if hasattr(event, 'agent_id') and event.agent_id is not None:
+                        agent_id = str(event.agent_id)
+                except Exception:
+                    pass
+
+                if not agent_id:
+                    agent_id = f"crew_{event.crew_name or 'unknown'}"
 
                 monitor_event = MonitorEvent(
                     source=EventSource(
@@ -182,11 +199,22 @@ class CrewAIPlugin:
         def on_agent_start(source, event):
             """Agent comes online"""
             try:
-                logger.info(f"[Agent上线] {event.agent.role} (ID: {event.agent.id})")
+                # Safely get agent ID with fallback
+                agent_id = None
+                try:
+                    if hasattr(event.agent, 'id') and event.agent.id is not None:
+                        agent_id = str(event.agent.id)
+                except Exception:
+                    pass
+
+                if not agent_id:
+                    agent_id = f"agent_{event.agent.role}"
+
+                logger.info(f"[Agent上线] {event.agent.role} (ID: {agent_id})")
                 monitor_event = MonitorEvent(
                     source=EventSource(
                         server_id=self.server_id,
-                        agent_id=str(event.agent.id),
+                        agent_id=agent_id,
                         framework="crewai",
                         language=Language.python,
                         process_id=os.getpid(),
@@ -217,10 +245,21 @@ class CrewAIPlugin:
         @crewai_event_bus.on(AgentExecutionCompletedEvent)
         def on_agent_complete(source, event):
             """Agent goes offline"""
+            # Safely get agent ID with fallback
+            agent_id = None
+            try:
+                if hasattr(event.agent, 'id') and event.agent.id is not None:
+                    agent_id = str(event.agent.id)
+            except Exception:
+                pass
+
+            if not agent_id:
+                agent_id = f"agent_{event.agent.role}"
+
             monitor_event = MonitorEvent(
                 source=EventSource(
                     server_id=self.server_id,
-                    agent_id=event.agent.id,
+                    agent_id=agent_id,
                     framework="crewai",
                     language=Language.python,
                     process_id=os.getpid(),
@@ -245,10 +284,21 @@ class CrewAIPlugin:
         @crewai_event_bus.on(AgentExecutionErrorEvent)
         def on_agent_error(source, event):
             """Agent error"""
+            # Safely get agent ID with fallback
+            agent_id = None
+            try:
+                if hasattr(event.agent, 'id') and event.agent.id is not None:
+                    agent_id = str(event.agent.id)
+            except Exception:
+                pass
+
+            if not agent_id:
+                agent_id = f"agent_{event.agent.role}"
+
             monitor_event = MonitorEvent(
                 source=EventSource(
                     server_id=self.server_id,
-                    agent_id=event.agent.id,
+                    agent_id=agent_id,
                     framework="crewai",
                     language=Language.python,
                     process_id=os.getpid(),
@@ -346,11 +396,25 @@ class CrewAIPlugin:
         def on_task_start(source, event):
             """Agent starts working"""
             try:
-                logger.info(f"[Agent工作] {event.task.agent.role} - {event.task.description[:50]}...")
+                # Safely get agent ID with fallback
+                agent_id = None
+                try:
+                    if hasattr(event.task, 'agent') and event.task.agent is not None:
+                        if hasattr(event.task.agent, 'id') and event.task.agent.id is not None:
+                            agent_id = str(event.task.agent.id)
+                except Exception:
+                    pass
+
+                if not agent_id and hasattr(event.task, 'agent') and event.task.agent is not None:
+                    agent_id = f"agent_{event.task.agent.role}"
+                elif not agent_id:
+                    agent_id = "agent_unknown"
+
+                logger.info(f"[Agent工作] {event.task.agent.role if event.task.agent else 'Unknown'} - {event.task.description[:50] if hasattr(event.task, 'description') else ''}...")
                 monitor_event = MonitorEvent(
                     source=EventSource(
                         server_id=self.server_id,
-                        agent_id=str(event.task.agent.id),
+                        agent_id=agent_id,
                         framework="crewai",
                         language=Language.python,
                         process_id=os.getpid(),
